@@ -5,14 +5,21 @@ const superMarketRTree = new rbush();
 const peopleRTree = new rbush();
 const sectionText = document.getElementById("SECTIONID");
 const parkingText = document.getElementById("INFOPARKING");
+const resultOverviewText = document.getElementById("resultview-area");
 const backButton = document.getElementById("back-id");
 const forwardButton = document.getElementById("forward-id");
+const startButton = document.getElementById("start-btn-id");
+const locateMeButton = document.getElementById("locate-me");
 const loader = document.getElementById("loader");
-const sectionHtml = document.getElementById("section-id");
+const sectionHtml = document.getElementById("data-section-id");
+const sectionStartButtonHtml = document.getElementById("start-button-area");
 const factory = new jsts.geom.GeometryFactory();
 const revenue = document.getElementById("revenue-potential");
 const dailySales = document.getElementById("daily-sales");
 const supermarketName = document.getElementById("supermarket-name");
+const navigationFooterHtml = document.getElementById("navigation-footer");
+
+
 var aSortedDistanceParkingLotSuperMarket;
 
 const COLOR_SCALE = [
@@ -54,8 +61,12 @@ const map = new mapboxgl.Map({
 const getParkingSpaceInfo = (evt, oFeature) => {
   let areaParkingSpot = 0;
   if (evt) {
-    let coord = evt.object.geometry.coordinates[0].map(e => new jsts.geom.Coordinate(e[0], e[1]));
-    areaParkingSpot = factory.createPolygon(coord).getArea();
+    // if this is a polygon calculate the area
+    if(evt && evt.object && evt.object.geometry && evt.object.geometry.coordinates
+      && evt.object.geometry.coordinates.length > 0 && "map" in evt.object.geometry.coordinates[0]) {    
+      let coord = evt.object.geometry.coordinates[0].map(e => new jsts.geom.Coordinate(e[0], e[1]));
+      areaParkingSpot = factory.createPolygon(coord).getArea();
+    }
     revenue.innerHTML = (Math.random() * 1000).toFixed() + " €";
     dailySales.innerHTML = (Math.random() * 200).toFixed();
     supermarketName.innerHTML = oFeature.properties ? oFeature.properties.name : "";
@@ -132,28 +143,18 @@ function colorScale(x) {
 function getTooltip({ object }) {
   return object && `
     Bezirk ${(object.properties.note)}
-    Population/qkm
-    ${Math.round(object.properties.einwohner / object.properties.qkm)}`;
+    Einwohner/km<sup>2</sup>: ${Math.round(object.properties.einwohner / object.properties.qkm)}`;
 }
-
 
 const ICON_MAPPING = {
-  marker: {
-    x: 0,
-    y: 0,
-    width: 128,
-    height: 128,
-    mask: true,
-    anchorX: -64,
-    anchorY: -64
-  }
+  marker: {x: 0, y: 0, width: 128, height: 128, mask: true, anchorX: 64, anchorY: 140}
 };
-const getMapIcon = () => {
-  return 'marker';
-}
 
 const getCoordinates = d => {
   return d.coordinates;
+}
+
+function onLoadInit(){
 }
 
 let bottomLeft = [13.3, 52.5];
@@ -173,8 +174,7 @@ function hideLoader() {
   displayLoaderCounter--;
   if (displayLoaderCounter <= 0) {
     loader.style.display = "none";
-    sectionHtml.style.display = "inline";
-
+    resetTour();
   }
 }
 
@@ -201,16 +201,15 @@ function loadSuperMarkets() {
 
 function loadPeople() {
   let query = bottomLeft[0] + `%2C` + bottomLeft[1]  + `%2C` + topRight[0] + `%2C` + topRight[1];
-  //console.log(query);
-  loadLayerWithGis(peopleLayer, encodeURI(query), peopleRTree);
+  let queryURL = "https://services2.arcgis.com/jUpNdisbWqRpMo35/arcgis/rest/services/PLZ_Gebiete/FeatureServer/0/query?where=1%3D1&outFields=*&geometry="+query+"&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outSR=4326&f=geojson";
+  loadLayerWithGis(peopleLayer,queryURL, peopleRTree);
 }
 
 
 function loadLayerWithGis(oLayer, oQuery, oRIndex) {
   showLoader();
-  let Query='13.3%2C52.5%2C13.35%2C52.55';
-  //console.log(Query);
-  fetch("https://services2.arcgis.com/jUpNdisbWqRpMo35/arcgis/rest/services/PLZ_Gebiete/FeatureServer/0/query?where=1%3D1&outFields=*&geometry="+Query+"&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outSR=4326&f=geojson", {
+  
+  fetch(oQuery, {
     //"body": oQuery,
     "method": "POST"
   }).then(res => res.json()).then(oResult => {
@@ -291,6 +290,8 @@ function loadLayerWithOverpass(oLayer, oQuery, oRIndex) {
       }
     );
 
+    resultOverviewText.innerHTML=`Gefundene Superm&auml;rkte: ${oFeatureCollection.features.length}`;
+
     hideLoader();
   }).catch(e => {
     console.error(e);
@@ -301,7 +302,7 @@ function loadLayerWithOverpass(oLayer, oQuery, oRIndex) {
 let aUniqueSortedDistanceParkingLotSuperMarket = [];
 const calculateDistanceMatrixForSuperMarketsAndParkingLots = () => {
   let start = [map.getCenter().lng, map.getCenter().lat];
-  const amountOfNeigbhors = 10;
+  const amountOfNeigbhors = 25;
 
   let aSuperMarkets = knn(superMarketRTree, start[0], start[1], amountOfNeigbhors);
   let aParkingLots = knn(parkingLotRTree, start[0], start[1], amountOfNeigbhors);
@@ -341,7 +342,7 @@ let deckMap = new deck.DeckGL({
     latitude: 52.50131842240836,
     zoom: 15
   },
-  layers: [peopleLayer,superMarketLayer,parkingLotLayer],
+  layers: [superMarketLayer, parkingLotLayer, peopleLayer],
   getTooltip,
   controller: true,
   onViewStateChange: ({ viewState }) => {
@@ -354,6 +355,7 @@ let deckMap = new deck.DeckGL({
     });
   },
   onWebGLInitialized: () => {
+    setTourLoading();
     Promise.all([loadParkingLots(), loadSuperMarkets()]).then(() => {
       calculateDistanceMatrixForSuperMarketsAndParkingLots();
     })
@@ -362,6 +364,29 @@ let deckMap = new deck.DeckGL({
   onDragEnd: calculateDistanceMatrixForSuperMarketsAndParkingLots
 });
 
+function startTour(){
+  console.log("Start tour");
+  sectionStartButtonHtml.style.display = "none";
+  sectionHtml.style.display = "block";
+  navigationFooterHtml.style.display = "block";  
+
+}
+
+
+function resetTour(){
+  console.log("Reset tour");
+  sectionStartButtonHtml.style.display = "block";  
+  sectionHtml.style.display = "none";
+  navigationFooterHtml.style.display = "none"
+}
+
+function setTourLoading(){
+  console.log("set Tour Loading");
+  sectionStartButtonHtml.style.display = "none";
+  sectionHtml.style.display = "none";
+  navigationFooterHtml.style.display = "none";
+
+}
 
 let currentPoint = 0;
 backButton.addEventListener("click", _ => {
@@ -371,6 +396,12 @@ backButton.addEventListener("click", _ => {
 
 forwardButton.addEventListener("click", _ => {
   currentPoint++
+  flyToPoint(currentPoint);
+});
+
+startButton.addEventListener("click", _ => {
+  currentPoint = 1;
+  startTour();
   flyToPoint(currentPoint);
 })
 
@@ -393,6 +424,22 @@ const flyToPoint = currentIndex => {
     console.log(error);
   }
   if (currentPoint2) {
+
+    let iconLayer = new deck.IconLayer({
+      id: 'icon-layer',
+      data:[currentPoint2],
+      pickable: true,
+      // iconAtlas and iconMapping are required
+      // getIcon: return a string
+      iconAtlas: 'https://raw.githubusercontent.com/visgl/deck.gl-data/master/website/icon-atlas.png',
+      iconMapping: ICON_MAPPING,
+      getIcon: d => 'marker',
+      sizeScale: 15,
+      getPosition: d => d,
+      getSize: d => 5,
+      getColor: d => [Math.sqrt(d.exits), 140, 0]
+    });    
+
     deckMap.setProps({
       viewState: {
         longitude: currentPoint2[0],
@@ -404,7 +451,8 @@ const flyToPoint = currentIndex => {
         "bearing": -27.396674584323023,
         transitionInterpolator: new deck.FlyToInterpolator(),
         transitionDuration: '1000'
-      }
+      },
+      layers: [iconLayer,superMarketLayer,parkingLotLayer,peopleLayer]      
     });
   }
   else {
@@ -412,7 +460,7 @@ const flyToPoint = currentIndex => {
   }
 }
 
-document.getElementById("locate-me").addEventListener("click", () => {
+locateMeButton.addEventListener("click", () => {
   navigator.geolocation.getCurrentPosition((position) => {
     const latitude = position.coords.latitude;
     const longitude = position.coords.longitude;
