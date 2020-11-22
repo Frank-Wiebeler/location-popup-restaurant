@@ -143,7 +143,7 @@ function colorScale(x) {
 function getTooltip({ object }) {
   return object && `
     Bezirk ${(object.properties.note)}
-    Einwohner/km<sup>2</sup>: ${Math.round(object.properties.einwohner / object.properties.qkm)}`;
+    Einwohner/km²: ${Math.round(object.properties.einwohner / object.properties.qkm)}`;
 }
 
 const ICON_MAPPING = {
